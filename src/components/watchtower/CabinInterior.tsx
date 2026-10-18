@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { Text } from '@react-three/drei';
 import TypewriterTerminal from './TypewriterTerminal';
 import VintageRadio from './VintageRadio';
 import DeskLamp from './DeskLamp';
@@ -61,14 +62,10 @@ const FireFinder = ({ y }: { y: number }) => {
       return t;
     };
 
-    loader.load('/map.png', (tex) => {
+    loader.load('/map.jpg', (tex) => {
       setMapTex(applyColorSpace(tex));
     }, undefined, () => {
-      loader.load('/map.jpg', (tex2) => {
-        setMapTex(applyColorSpace(tex2));
-      }, undefined, () => {
-        // Silently fail if map image isn't available
-      });
+      // Silently fail if map image isn't available
     });
   }, []);
 
@@ -742,204 +739,602 @@ const WallClock = ({ y }: { y: number }) => (
   </group>
 );
 
-// ─── PROCEDURAL RED THREAD FOR DETECTIVE BOARD ───
-const RedThread = ({ p1, p2, sag = 0.03, color = "#dc2626", thickness = 0.0025 }: { p1: [number, number, number]; p2: [number, number, number]; sag?: number; color?: string; thickness?: number }) => {
-  const curve = useMemo(() => {
-    const start = new THREE.Vector3(...p1);
-    const end = new THREE.Vector3(...p2);
-    const mid = start.clone().add(end).multiplyScalar(0.5);
-    mid.y -= sag;
-    mid.z += 0.015; // Pull out slightly along local +Z toward viewer so thread hangs cleanly in front of papers
-    return new THREE.CatmullRomCurve3([start, mid, end]);
-  }, [p1[0], p1[1], p1[2], p2[0], p2[1], p2[2], sag]);
+// ─── PROCEDURAL PHYSICAL GRAVITY CATENARY THREAD WITH KNOTS & LOOSE TAILS ───
+const RedThread = ({
+  p1,
+  p2,
+  sag = 0.05,
+  color = "#dc2626",
+  thickness = 0.0022,
+  tension = 1.0,
+  tailLength = 0.04
+}: {
+  p1: [number, number, number];
+  p2: [number, number, number];
+  sag?: number;
+  color?: string;
+  thickness?: number;
+  tension?: number; // Higher tension = straighter yarn, lower tension = heavier catenary hang
+  tailLength?: number;
+}) => {
+  const { mainCurve, tail1Curve, tail2Curve } = useMemo(() => {
+    const v1 = new THREE.Vector3(...p1);
+    const v2 = new THREE.Vector3(...p2);
+
+    // Pull starting points slightly outward along local Z so they loop cleanly around the pin head
+    v1.z += 0.005;
+    v2.z += 0.005;
+
+    const span = v1.distanceTo(v2);
+    // Dynamic catenary droop based on distance and tension
+    const actualSag = (sag * (span / 0.5) * 0.9) / Math.max(tension, 0.2);
+
+    // Generate catenary curve points with gravitational drop (Y-axis down)
+    const points: THREE.Vector3[] = [];
+    const segments = 16;
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      // Linear interpolation between the two pins
+      const pt = new THREE.Vector3().lerpVectors(v1, v2, t);
+
+      // Catenary parabolic droop formula: y = 4 * sag * t * (1 - t)
+      const droop = actualSag * 4 * t * (1 - t);
+      pt.y -= droop;
+
+      // Slight forward bow along Z so thread floats cleanly in front of paper cards
+      pt.z += 0.012 * Math.sin(t * Math.PI);
+
+      points.push(pt);
+    }
+
+    const mainCurve = new THREE.CatmullRomCurve3(points);
+
+    // Knot and loose hanging tail at Pin 1 (drooping naturally with gravity)
+    const tail1Points = [
+      new THREE.Vector3(v1.x, v1.y, v1.z),
+      new THREE.Vector3(v1.x + 0.008, v1.y - tailLength * 0.45, v1.z + 0.003),
+      new THREE.Vector3(v1.x + 0.004, v1.y - tailLength, v1.z + 0.002)
+    ];
+    const tail1Curve = new THREE.CatmullRomCurve3(tail1Points);
+
+    // Knot and loose hanging tail at Pin 2
+    const tail2Points = [
+      new THREE.Vector3(v2.x, v2.y, v2.z),
+      new THREE.Vector3(v2.x - 0.006, v2.y - tailLength * 0.5, v2.z + 0.003),
+      new THREE.Vector3(v2.x - 0.003, v2.y - tailLength * 1.1, v2.z + 0.001)
+    ];
+    const tail2Curve = new THREE.CatmullRomCurve3(tail2Points);
+
+    return { mainCurve, tail1Curve, tail2Curve };
+  }, [p1[0], p1[1], p1[2], p2[0], p2[1], p2[2], sag, tension, tailLength]);
 
   return (
-    <mesh>
-      <tubeGeometry args={[curve, 20, thickness, 6, false]} />
-      <meshStandardMaterial color={color} roughness={0.5} />
-    </mesh>
+    <group>
+      {/* Main Sagging Catenary Thread */}
+      <mesh>
+        <tubeGeometry args={[mainCurve, 36, thickness, 8, false]} />
+        <meshStandardMaterial color={color} roughness={0.8} />
+      </mesh>
+
+      {/* Tiny Tie Knot / Wrap Loop Around Pin 1 */}
+      <mesh position={[p1[0], p1[1], p1[2] + 0.004]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.008, thickness * 1.2, 6, 12]} />
+        <meshStandardMaterial color={color} roughness={0.9} />
+      </mesh>
+
+      {/* Loose Hanging Tail 1 */}
+      <mesh>
+        <tubeGeometry args={[tail1Curve, 12, thickness * 0.85, 6, false]} />
+        <meshStandardMaterial color={color} roughness={0.9} />
+      </mesh>
+
+      {/* Tiny Tie Knot / Wrap Loop Around Pin 2 */}
+      <mesh position={[p2[0], p2[1], p2[2] + 0.004]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.008, thickness * 1.2, 6, 12]} />
+        <meshStandardMaterial color={color} roughness={0.9} />
+      </mesh>
+
+      {/* Loose Hanging Tail 2 */}
+      <mesh>
+        <tubeGeometry args={[tail2Curve, 12, thickness * 0.85, 6, false]} />
+        <meshStandardMaterial color={color} roughness={0.9} />
+      </mesh>
+    </group>
   );
 };
 
 // ─── DETECTIVE CONSPIRACY BOARD (FLUSH AGAINST BED SIDE LEFT WALL AT X=-2.45, EXACTLY IN THE MIDDLE Z=0) ───
 const DetectiveBoard = ({ y }: { y: number }) => {
-  // Left wall inner surface is at X = -2.46. Board center at X = -2.45, Z = 0 places the back frame exactly flush against the wall without floating.
-  // Local pin coordinates relative to corkboard center [0, 0, 0]
-  const pA: [number, number, number] = [-0.46, 0.26, -0.038]; // Top-Left Polaroid Pin
-  const pB: [number, number, number] = [0, 0.28, -0.038];     // Top-Center Blueprint Pin
-  const pC: [number, number, number] = [0.46, 0.24, -0.038];  // Top-Right Secret Report Pin
-  const pD: [number, number, number] = [-0.46, 0.0, -0.038];  // Mid-Left Topo Map Pin
-  const pE: [number, number, number] = [0, 0.0, -0.038];      // Center Hub Article Pin
-  const pF: [number, number, number] = [0.46, -0.05, -0.038]; // Mid-Right Sticky Note Pin
-  const pG: [number, number, number] = [-0.44, -0.26, -0.038];// Bottom-Left Lab Card Pin
-  const pH: [number, number, number] = [0.44, -0.27, -0.038]; // Bottom-Right Pink Note Pin
+  // Left wall inner surface is at X = -2.46. Board center at X = -2.45, Z = 0 places the back frame exactly flush against the wall.
+  // Project pin coordinates relative to corkboard center [0, 0, 0], with positive Z facing into the room.
+  const pProteus: [number, number, number]   = [-0.42, 0.26, 0.038];   // Top-Left: Proteus
+  const pIni: [number, number, number]       = [0.0, 0.28, 0.038];     // Top-Center: ini CLI
+  const pWcheck: [number, number, number]    = [0.44, 0.25, 0.038];    // Top-Right: wcheck scanner
+  const pGifted: [number, number, number]    = [-0.44, 0.0, 0.038];    // Mid-Left: Gifted India Initiative
+  const pPortfolio: [number, number, number] = [0.0, 0.0, 0.038];      // Center Hub: 3D Portfolio
+  const pRobotics: [number, number, number]  = [0.44, -0.02, 0.038];   // Mid-Right: Line Follower & Micromouse
+  const pCloud: [number, number, number]     = [-0.42, -0.27, 0.038];  // Bottom-Left: Personal Cloud Server & Homelab
+  const pDiscord: [number, number, number]   = [0.42, -0.27, 0.038];   // Bottom-Right: Discord Bot Platform
 
   return (
-    <group position={[-2.45, y + 1.8, 0]} rotation={[0, -Math.PI / 2, 0]}>
-      {/* Dedicated spotlight illuminating the Detective Board evidence */}
-      <pointLight position={[0, 0.3, -0.8]} intensity={1.2} color="#FFF5E4" distance={3} decay={2} />
+    <group position={[-2.45, y + 1.8, 0]} rotation={[0, Math.PI / 2, 0]}>
+      {/* Dedicated spotlight illuminating the Detective Project Board from inside the room */}
+      <pointLight position={[0, 0.3, 0.8]} intensity={1.3} color="#FFF5E4" distance={3.2} decay={2} />
 
-      {/* ─── CORKBOARD & 4-PIECE NON-OVERLAPPING WOOD FRAME (ELIMINATES INNER BORDER Z-FIGHTING) ─── */}
-      {/* Corkboard Panel (1.32 x 0.84 x 0.02) */}
+      {/* ─── CORKBOARD & WOOD FRAME ─── */}
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[1.32, 0.84, 0.02]} />
         <meshStandardMaterial color="#9F784B" roughness={0.9} />
       </mesh>
       {/* Top Wood Frame Rail */}
-      <mesh position={[0, 0.445, -0.005]}>
+      <mesh position={[0, 0.445, 0.005]}>
         <boxGeometry args={[1.42, 0.05, 0.03]} />
         <meshStandardMaterial color={I.darkWood} roughness={0.9} />
       </mesh>
       {/* Bottom Wood Frame Rail */}
-      <mesh position={[0, -0.445, -0.005]}>
+      <mesh position={[0, -0.445, 0.005]}>
         <boxGeometry args={[1.42, 0.05, 0.03]} />
         <meshStandardMaterial color={I.darkWood} roughness={0.9} />
       </mesh>
       {/* Left Wood Frame Rail */}
-      <mesh position={[-0.685, 0, -0.005]}>
+      <mesh position={[-0.685, 0, 0.005]}>
         <boxGeometry args={[0.05, 0.84, 0.03]} />
         <meshStandardMaterial color={I.darkWood} roughness={0.9} />
       </mesh>
       {/* Right Wood Frame Rail */}
-      <mesh position={[0.685, 0, -0.005]}>
+      <mesh position={[0.685, 0, 0.005]}>
         <boxGeometry args={[0.05, 0.84, 0.03]} />
         <meshStandardMaterial color={I.darkWood} roughness={0.9} />
       </mesh>
 
-      {/* ─── VISIBLE 3D SOLID EVIDENCE PICTURES & DOCUMENTS (STRICT Z SEPARATION) ─── */}
-      {/* Node A: Polaroid Suspect Photo */}
+      {/* ─── TOP BOARD HEADER: "ACTIVE CASE: WOETER LABS" ─── */}
+      <group position={[0, 0.395, 0.024]}>
+        <mesh>
+          <boxGeometry args={[0.48, 0.05, 0.002]} />
+          <meshStandardMaterial color="#b91c1c" roughness={0.8} />
+        </mesh>
+        <Text
+          position={[0, 0, 0.003]}
+          fontSize={0.022}
+          color="#ffffff"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.15}
+        >
+          ACTIVE CASE: WOETER LABS
+        </Text>
+      </group>
+
+      {/* ══════════════ PROJECT 1: PROTEUS (TOP-LEFT) ══════════════ */}
+      {/* Nanoprecipitation Simulation Pipeline: Python, RDKit, LAMMPS, 3D Web */}
       <group>
-        <mesh position={[-0.46, 0.21, -0.024]} rotation={[0, 0, -0.08]}>
-          <boxGeometry args={[0.22, 0.28, 0.003]} />
-          <meshStandardMaterial color={I.white} roughness={0.6} />
+        <mesh position={[-0.42, 0.22, 0.024]} rotation={[0, 0, -0.06]}>
+          <boxGeometry args={[0.26, 0.22, 0.003]} />
+          <meshStandardMaterial color="#0f172a" roughness={0.8} />
         </mesh>
-        <mesh position={[-0.46, 0.24, -0.028]} rotation={[0, 0, -0.08]}>
-          <boxGeometry args={[0.18, 0.18, 0.002]} />
-          <meshStandardMaterial color="#1e293b" roughness={0.7} />
+        {/* Blueprint Wireframe Grid Decal */}
+        <mesh position={[-0.42, 0.21, 0.027]} rotation={[0, 0, -0.06]}>
+          <boxGeometry args={[0.23, 0.14, 0.001]} />
+          <meshStandardMaterial color="#38bdf8" wireframe />
         </mesh>
-        <mesh position={pA} rotation={[Math.PI / 2, 0, 0]}>
+        <Text
+          position={[-0.42, 0.285, 0.028]}
+          rotation={[0, 0, -0.06]}
+          fontSize={0.022}
+          color="#38bdf8"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.08}
+        >
+          PROTEUS SIMULATOR
+        </Text>
+        <Text
+          position={[-0.42, 0.135, 0.028]}
+          rotation={[0, 0, -0.06]}
+          fontSize={0.013}
+          color="#94a3b8"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Python · RDKit · LAMMPS · 3D
+        </Text>
+        {/* Push Pin */}
+        <mesh position={pProteus} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
           <meshStandardMaterial color={I.redBright} roughness={0.3} />
         </mesh>
       </group>
 
-      {/* Node B: Project Proteus Schematic Blueprint */}
+      {/* ══════════════ PROJECT 2: INI CLI (TOP-CENTER) ══════════════ */}
+      {/* Universal Project Initializer: Go, Charm.sh, Cobra, go:embed */}
       <group>
-        <mesh position={[0, 0.24, -0.024]} rotation={[0, 0, 0.04]}>
-          <boxGeometry args={[0.34, 0.24, 0.003]} />
-          <meshStandardMaterial color="#1d4ed8" roughness={0.7} />
+        <mesh position={[0.0, 0.24, 0.024]} rotation={[0, 0, 0.03]}>
+          <boxGeometry args={[0.28, 0.20, 0.003]} />
+          <meshStandardMaterial color="#1e1e2e" roughness={0.7} />
         </mesh>
-        <mesh position={[0, 0.24, -0.028]} rotation={[0, 0, 0.04]}>
-          <boxGeometry args={[0.28, 0.18, 0.002]} />
-          <meshStandardMaterial color="#93c5fd" wireframe />
+        <mesh position={[0.0, 0.23, 0.027]} rotation={[0, 0, 0.03]}>
+          <boxGeometry args={[0.25, 0.12, 0.001]} />
+          <meshStandardMaterial color="#cba6f7" />
         </mesh>
-        <mesh position={pB} rotation={[Math.PI / 2, 0, 0]}>
+        <Text
+          position={[0.0, 0.30, 0.028]}
+          rotation={[0, 0, 0.03]}
+          fontSize={0.024}
+          color="#f38ba8"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.12}
+        >
+          ini — TUI / CLI
+        </Text>
+        <Text
+          position={[0.0, 0.24, 0.029]}
+          rotation={[0, 0, 0.03]}
+          fontSize={0.014}
+          color="#11111b"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Universal 39+ Lang Scaffolder
+        </Text>
+        <Text
+          position={[0.0, 0.18, 0.029]}
+          rotation={[0, 0, 0.03]}
+          fontSize={0.012}
+          color="#313244"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Go · Charm.sh · go:embed
+        </Text>
+        {/* Push Pin */}
+        <mesh position={pIni} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
           <meshStandardMaterial color="#facc15" roughness={0.3} />
         </mesh>
       </group>
 
-      {/* Node C: Confidential Top Secret Folder */}
+      {/* ══════════════ PROJECT 3: WCHECK SCANNER (TOP-RIGHT) ══════════════ */}
+      {/* Headless Web Stress Scanner: Go, chromedp, DevTools, Worker Pool */}
       <group>
-        <mesh position={[0.46, 0.18, -0.024]} rotation={[0, 0, -0.05]}>
-          <boxGeometry args={[0.24, 0.30, 0.003]} />
+        <mesh position={[0.44, 0.20, 0.024]} rotation={[0, 0, -0.04]}>
+          <boxGeometry args={[0.25, 0.22, 0.003]} />
           <meshStandardMaterial color="#fef08a" roughness={0.7} />
         </mesh>
-        <mesh position={[0.46, 0.28, -0.028]} rotation={[0, 0, -0.05]}>
-          <boxGeometry args={[0.20, 0.04, 0.002]} />
+        {/* Warning Stamp Tag */}
+        <mesh position={[0.44, 0.28, 0.028]} rotation={[0, 0, -0.04]}>
+          <boxGeometry args={[0.18, 0.035, 0.002]} />
           <meshStandardMaterial color="#dc2626" />
         </mesh>
-        <mesh position={pC} rotation={[Math.PI / 2, 0, 0]}>
+        <Text
+          position={[0.44, 0.28, 0.030]}
+          rotation={[0, 0, -0.04]}
+          fontSize={0.014}
+          color="#ffffff"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.1}
+        >
+          STRESS TEST
+        </Text>
+        <Text
+          position={[0.44, 0.225, 0.028]}
+          rotation={[0, 0, -0.04]}
+          fontSize={0.021}
+          color="#0f172a"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.06}
+        >
+          wcheck
+        </Text>
+        <Text
+          position={[0.44, 0.155, 0.028]}
+          rotation={[0, 0, -0.04]}
+          fontSize={0.012}
+          color="#475569"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+          lineHeight={1.3}
+        >
+          Headless Chrome Scanner{"\n"}Go · chromedp · Concurrency
+        </Text>
+        {/* Push Pin */}
+        <mesh position={pWcheck} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
           <meshStandardMaterial color={I.redBright} roughness={0.3} />
         </mesh>
       </group>
 
-      {/* Node D: Sector 4 Topographic Target Map */}
+      {/* ══════════════ PROJECT 4: GIFTED INDIA INITIATIVE (MID-LEFT) ══════════════ */}
+      {/* Official Production Platform: Next.js 15, Node.js, Express, MySQL, Three.js */}
       <group>
-        <mesh position={[-0.46, -0.05, -0.024]} rotation={[0, 0, 0.08]}>
-          <boxGeometry args={[0.28, 0.22, 0.003]} />
-          <meshStandardMaterial color="#a3e635" roughness={0.7} />
-        </mesh>
-        <mesh position={[-0.46, -0.05, -0.028]} rotation={[0, 0, 0.08]}>
-          <boxGeometry args={[0.08, 0.08, 0.002]} />
-          <meshStandardMaterial color="#dc2626" />
-        </mesh>
-        <mesh position={pD} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
-          <meshStandardMaterial color="#3b82f6" roughness={0.3} />
-        </mesh>
-      </group>
-
-      {/* Node E: Central Hub Newspaper Headline Article */}
-      <group>
-        <mesh position={[0, -0.03, -0.024]} rotation={[0, 0, -0.02]}>
-          <boxGeometry args={[0.32, 0.28, 0.003]} />
+        <mesh position={[-0.44, -0.04, 0.024]} rotation={[0, 0, 0.05]}>
+          <boxGeometry args={[0.27, 0.20, 0.003]} />
           <meshStandardMaterial color="#f8fafc" roughness={0.7} />
         </mesh>
-        <mesh position={[0, 0.07, -0.028]} rotation={[0, 0, -0.02]}>
-          <boxGeometry args={[0.26, 0.04, 0.002]} />
-          <meshStandardMaterial color="#0f172a" />
+        <mesh position={[-0.44, 0.02, 0.027]} rotation={[0, 0, 0.05]}>
+          <boxGeometry args={[0.24, 0.035, 0.001]} />
+          <meshStandardMaterial color="#0284c7" />
         </mesh>
-        <mesh position={pE} rotation={[Math.PI / 2, 0, 0]}>
+        <Text
+          position={[-0.44, 0.02, 0.029]}
+          rotation={[0, 0, 0.05]}
+          fontSize={0.013}
+          color="#ffffff"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.08}
+        >
+          PRODUCTION DEPLOYED
+        </Text>
+        <Text
+          position={[-0.44, -0.035, 0.028]}
+          rotation={[0, 0, 0.05]}
+          fontSize={0.018}
+          color="#0f172a"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Gifted India
+        </Text>
+        <Text
+          position={[-0.44, -0.095, 0.028]}
+          rotation={[0, 0, 0.05]}
+          fontSize={0.012}
+          color="#64748b"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+          lineHeight={1.3}
+        >
+          Core Web Engineer{"\n"}Next.js · Node · Three.js · MySQL
+        </Text>
+        {/* Push Pin */}
+        <mesh position={pGifted} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
+          <meshStandardMaterial color="#0284c7" roughness={0.3} />
+        </mesh>
+      </group>
+
+      {/* ══════════════ PROJECT 5: 3D PORTFOLIO (CENTER HUB) ══════════════ */}
+      {/* Firewatch Watchtower Interactive Experience: React 19, Three.js, R3F, GSAP */}
+      <group>
+        <mesh position={[0.0, -0.04, 0.024]} rotation={[0, 0, -0.02]}>
+          <boxGeometry args={[0.32, 0.22, 0.003]} />
+          <meshStandardMaterial color="#ffedd5" roughness={0.6} />
+        </mesh>
+        {/* Inner Hub Badge */}
+        <mesh position={[0.0, 0.04, 0.027]} rotation={[0, 0, -0.02]}>
+          <boxGeometry args={[0.28, 0.04, 0.001]} />
+          <meshStandardMaterial color="#ea580c" />
+        </mesh>
+        <Text
+          position={[0.0, 0.04, 0.029]}
+          rotation={[0, 0, -0.02]}
+          fontSize={0.016}
+          color="#ffffff"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.12}
+        >
+          ★ 3D PORTFOLIO HUB ★
+        </Text>
+        <Text
+          position={[0.0, -0.02, 0.028]}
+          rotation={[0, 0, -0.02]}
+          fontSize={0.020}
+          color="#431407"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Watchtower Scene
+        </Text>
+        <Text
+          position={[0.0, -0.085, 0.028]}
+          rotation={[0, 0, -0.02]}
+          fontSize={0.012}
+          color="#7c2d12"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+          lineHeight={1.3}
+        >
+          Three.js · R3F · Drei · GSAP{"\n"}Procedural Shaders & Audio
+        </Text>
+        {/* Push Pin */}
+        <mesh position={pPortfolio} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.008, 0.008, 0.025, 8]} />
+          <meshStandardMaterial color="#ea580c" roughness={0.2} metalness={0.4} />
+        </mesh>
+      </group>
+
+      {/* ══════════════ PROJECT 6: LINE FOLLOWER & MICROMOUSE (MID-RIGHT) ══════════════ */}
+      {/* Robotics & Embedded Systems: C++, AVR/ARM, PID Controls, Hardware */}
+      <group>
+        <mesh position={[0.44, -0.06, 0.024]} rotation={[0, 0, 0.08]}>
+          <boxGeometry args={[0.26, 0.20, 0.003]} />
+          <meshStandardMaterial color="#1e293b" roughness={0.7} />
+        </mesh>
+        <mesh position={[0.44, 0.01, 0.027]} rotation={[0, 0, 0.08]}>
+          <boxGeometry args={[0.22, 0.035, 0.001]} />
+          <meshStandardMaterial color="#10b981" />
+        </mesh>
+        <Text
+          position={[0.44, 0.01, 0.029]}
+          rotation={[0, 0, 0.08]}
+          fontSize={0.013}
+          color="#ffffff"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.08}
+        >
+          HARDWARE & ROBOTICS
+        </Text>
+        <Text
+          position={[0.44, -0.045, 0.028]}
+          rotation={[0, 0, 0.08]}
+          fontSize={0.017}
+          color="#f8fafc"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Micromouse Robot
+        </Text>
+        <Text
+          position={[0.44, -0.105, 0.028]}
+          rotation={[0, 0, 0.08]}
+          fontSize={0.012}
+          color="#94a3b8"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+          lineHeight={1.3}
+        >
+          C++ · AVR/ARM · Maze Solving{"\n"}PID Speed & Feedback Loop
+        </Text>
+        {/* Push Pin */}
+        <mesh position={pRobotics} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
+          <meshStandardMaterial color="#10b981" roughness={0.3} />
+        </mesh>
+      </group>
+
+      {/* ══════════════ PROJECT 7: PERSONAL CLOUD & HOMELAB (BOTTOM-LEFT) ══════════════ */}
+      {/* Linux, Docker, Containers, Networking, Self-hosted */}
+      <group>
+        <mesh position={[-0.42, -0.28, 0.024]} rotation={[0, 0, -0.05]}>
+          <boxGeometry args={[0.26, 0.18, 0.003]} />
+          <meshStandardMaterial color="#e2e8f0" roughness={0.8} />
+        </mesh>
+        <Text
+          position={[-0.42, -0.23, 0.028]}
+          rotation={[0, 0, -0.05]}
+          fontSize={0.018}
+          color="#0f172a"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.05}
+        >
+          Personal Cloud
+        </Text>
+        <Text
+          position={[-0.42, -0.285, 0.028]}
+          rotation={[0, 0, -0.05]}
+          fontSize={0.013}
+          color="#475569"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Self-Hosted Homelab Server
+        </Text>
+        <Text
+          position={[-0.42, -0.33, 0.028]}
+          rotation={[0, 0, -0.05]}
+          fontSize={0.011}
+          color="#64748b"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Linux · Docker · Remote Access · SSH
+        </Text>
+        {/* Push Pin */}
+        <mesh position={pCloud} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
           <meshStandardMaterial color={I.redBright} roughness={0.3} />
         </mesh>
       </group>
 
-      {/* Node F: Yellow Sticky Note */}
+      {/* ══════════════ PROJECT 8: DISCORD BOT PLATFORM (BOTTOM-RIGHT) ══════════════ */}
+      {/* Real-time Event Driven Go Daemon, WebSockets, Raspberry Pi */}
       <group>
-        <mesh position={[0.46, -0.11, -0.024]} rotation={[0, 0, -0.14]}>
-          <boxGeometry args={[0.18, 0.18, 0.003]} />
-          <meshStandardMaterial color="#facc15" roughness={0.7} />
+        <mesh position={[0.42, -0.28, 0.024]} rotation={[0, 0, 0.06]}>
+          <boxGeometry args={[0.26, 0.18, 0.003]} />
+          <meshStandardMaterial color="#5865f2" roughness={0.7} />
         </mesh>
-        <mesh position={pF} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
-          <meshStandardMaterial color="#22c55e" roughness={0.3} />
-        </mesh>
-      </group>
-
-      {/* Node G: Forensic Fingerprint Lab Card */}
-      <group>
-        <mesh position={[-0.44, -0.28, -0.024]} rotation={[0, 0, -0.06]}>
-          <boxGeometry args={[0.24, 0.16, 0.003]} />
-          <meshStandardMaterial color="#e2e8f0" roughness={0.7} />
-        </mesh>
-        <mesh position={[-0.44, -0.28, -0.028]} rotation={[0, 0, -0.06]}>
-          <boxGeometry args={[0.10, 0.10, 0.002]} />
-          <meshStandardMaterial color="#334155" />
-        </mesh>
-        <mesh position={pG} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
-          <meshStandardMaterial color={I.redBright} roughness={0.3} />
-        </mesh>
-      </group>
-
-      {/* Node H: Pink Evidence Note */}
-      <group>
-        <mesh position={[0.44, -0.29, -0.024]} rotation={[0, 0, 0.10]}>
-          <boxGeometry args={[0.22, 0.18, 0.003]} />
-          <meshStandardMaterial color="#f472b6" roughness={0.7} />
-        </mesh>
-        <mesh position={pH} rotation={[Math.PI / 2, 0, 0]}>
+        <Text
+          position={[0.42, -0.23, 0.028]}
+          rotation={[0, 0, 0.06]}
+          fontSize={0.018}
+          color="#ffffff"
+          font="./space-grotesk.ttf"
+          anchorX="center"
+          anchorY="middle"
+          letterSpacing={0.06}
+        >
+          Discord Bot Daemon
+        </Text>
+        <Text
+          position={[0.42, -0.285, 0.028]}
+          rotation={[0, 0, 0.06]}
+          fontSize={0.013}
+          color="#e0e7ff"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Real-time Event Engine
+        </Text>
+        <Text
+          position={[0.42, -0.33, 0.028]}
+          rotation={[0, 0, 0.06]}
+          fontSize={0.011}
+          color="#c7d2fe"
+          font="./outfit.ttf"
+          anchorX="center"
+          anchorY="middle"
+        >
+          Go · discordgo · WebSockets · RPi
+        </Text>
+        {/* Push Pin */}
+        <mesh position={pDiscord} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.007, 0.007, 0.025, 8]} />
           <meshStandardMaterial color="#facc15" roughness={0.3} />
         </mesh>
       </group>
 
-      {/* ─── 3D CATMULL-ROM RED THREAD CONNECTIONS ACROSS THE EVIDENCE BOARD ─── */}
-      <RedThread p1={pA} p2={pE} sag={0.04} color="#dc2626" thickness={0.003} />
-      <RedThread p1={pB} p2={pE} sag={0.02} color="#ff1111" thickness={0.0025} />
-      <RedThread p1={pC} p2={pE} sag={0.04} color="#dc2626" thickness={0.003} />
-      <RedThread p1={pD} p2={pE} sag={0.03} color="#ff1111" />
-      <RedThread p1={pF} p2={pE} sag={0.03} color="#dc2626" />
-      <RedThread p1={pG} p2={pE} sag={0.04} color="#ff1111" thickness={0.0025} />
-      <RedThread p1={pH} p2={pE} sag={0.03} color="#dc2626" />
-      <RedThread p1={pA} p2={pD} sag={0.015} color="#eab308" thickness={0.002} />
-      <RedThread p1={pB} p2={pC} sag={0.02} color="#ff1111" />
-      <RedThread p1={pG} p2={pH} sag={0.02} color="#eab308" thickness={0.002} />
-      <RedThread p1={pA} p2={pH} sag={0.08} color="#b91c1c" thickness={0.002} />
-      <RedThread p1={pC} p2={pG} sag={0.08} color="#b91c1c" thickness={0.002} />
+      {/* ══════════════ 3D CATENARY GRAVITY THREAD CONNECTIONS (COMMON GROUNDS) ══════════════ */}
+      {/* 1. Go / Systems Tooling Cluster (ini <-> wcheck <-> Discord Bot) */}
+      <RedThread p1={pIni} p2={pWcheck} sag={0.06} tension={0.9} color="#ff2222" thickness={0.0024} tailLength={0.035} />
+      <RedThread p1={pIni} p2={pDiscord} sag={0.11} tension={0.8} color="#dc2626" thickness={0.0022} tailLength={0.045} />
+      <RedThread p1={pWcheck} p2={pDiscord} sag={0.08} tension={0.85} color="#dc2626" thickness={0.0022} tailLength={0.04} />
+
+      {/* 2. Web & Three.js 3D Ecosystem (Portfolio Hub <-> Gifted India <-> Proteus Web) */}
+      <RedThread p1={pPortfolio} p2={pGifted} sag={0.065} tension={0.95} color="#dc2626" thickness={0.0024} tailLength={0.038} />
+      <RedThread p1={pPortfolio} p2={pProteus} sag={0.085} tension={0.85} color="#ff3333" thickness={0.0024} tailLength={0.042} />
+
+      {/* 3. Dev Testing & Web Stress (wcheck <-> Gifted India <-> Portfolio) */}
+      <RedThread p1={pWcheck} p2={pPortfolio} sag={0.075} tension={0.9} color="#eab308" thickness={0.0022} tailLength={0.032} />
+      <RedThread p1={pWcheck} p2={pGifted} sag={0.12} tension={0.75} color="#b91c1c" thickness={0.0020} tailLength={0.048} />
+
+      {/* 4. Linux & Infrastructure Backbone (Cloud Homelab <-> Discord RPi <-> Robotics) */}
+      <RedThread p1={pCloud} p2={pDiscord} sag={0.07} tension={0.9} color="#eab308" thickness={0.0022} tailLength={0.035} />
+      <RedThread p1={pCloud} p2={pRobotics} sag={0.13} tension={0.7} color="#dc2626" thickness={0.0020} tailLength={0.05} />
+      <RedThread p1={pRobotics} p2={pDiscord} sag={0.08} tension={0.85} color="#b91c1c" thickness={0.0022} tailLength={0.038} />
+
+      {/* 5. C++ / Computational Simulation (Proteus LAMMPS <-> Micromouse AVR/ARM C++) */}
+      <RedThread p1={pProteus} p2={pRobotics} sag={0.14} tension={0.7} color="#ff2222" thickness={0.0022} tailLength={0.052} />
+
+      {/* 6. Automation & Docker Integration (Proteus <-> Cloud Server) */}
+      <RedThread p1={pProteus} p2={pCloud} sag={0.07} tension={0.9} color="#dc2626" thickness={0.0022} tailLength={0.036} />
     </group>
   );
 };
@@ -974,52 +1369,48 @@ let _fabricBump: THREE.CanvasTexture | null = null;
 let _metalNoise: THREE.CanvasTexture | null = null;
 
 const ensureTextures = () => {
-  if (_woodBump) return;
+  if (_woodBump && _fabricBump && _metalNoise) return;
 
-  // 1. Procedural Wood Grain Engine
+  // 1. Procedural Wood Grain Engine (Fast, lean canvas)
   const c1 = document.createElement('canvas');
-  c1.width = 512; c1.height = 512;
+  c1.width = 256; c1.height = 256;
   const ctx1 = c1.getContext('2d')!;
-  ctx1.fillStyle = '#808080'; ctx1.fillRect(0, 0, 512, 512); // Neutral base
-  for (let i = 0; i < 1500; i++) {
+  ctx1.fillStyle = '#808080'; ctx1.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 200; i++) {
     ctx1.globalAlpha = Math.random() * 0.15;
     ctx1.fillStyle = Math.random() > 0.5 ? '#ffffff' : '#000000';
-    const x = Math.random() * 512;
-    ctx1.fillRect(x, 0, Math.random() * 3 + 1, 512); // Extruded directional grain
-    if (Math.random() > 0.98) {
-      ctx1.beginPath(); // Heavy knots
-      ctx1.ellipse(x, Math.random() * 512, Math.random() * 20 + 5, Math.random() * 40 + 10, 0, 0, Math.PI * 2);
-      ctx1.fill();
-    }
+    const x = Math.random() * 256;
+    ctx1.fillRect(x, 0, Math.random() * 2 + 1, 256);
   }
   _woodBump = new THREE.CanvasTexture(c1);
   _woodBump.wrapS = THREE.RepeatWrapping; _woodBump.wrapT = THREE.RepeatWrapping;
 
-  // 2. Procedural High-Frequency Fabric Weave
+  // 2. Procedural High-Frequency Fabric Weave (Direct ImageData buffer for <1ms execution)
   const c2 = document.createElement('canvas');
-  c2.width = 256; c2.height = 256;
+  c2.width = 128; c2.height = 128;
   const ctx2 = c2.getContext('2d')!;
-  ctx2.fillStyle = '#808080'; ctx2.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 30000; i++) {
-    ctx2.fillStyle = Math.random() > 0.5 ? '#ffffff' : '#000000';
-    ctx2.globalAlpha = Math.random() * 0.1;
-    ctx2.fillRect(Math.random() * 256, Math.random() * 256, 2, 2); // Tiny isolated bump points
+  const imgData2 = ctx2.createImageData(128, 128);
+  const data32 = new Uint32Array(imgData2.data.buffer);
+  for (let i = 0; i < data32.length; i++) {
+    const v = (128 + (Math.random() > 0.5 ? 20 : -20)) | 0;
+    data32[i] = (255 << 24) | (v << 16) | (v << 8) | v;
   }
+  ctx2.putImageData(imgData2, 0, 0);
   _fabricBump = new THREE.CanvasTexture(c2);
   _fabricBump.wrapS = THREE.RepeatWrapping; _fabricBump.wrapT = THREE.RepeatWrapping;
-  _fabricBump.repeat.set(8, 8); // Tiled extremely dense
+  _fabricBump.repeat.set(8, 8);
 
+  // 3. Fast Metal Noise Bump (Direct ImageData buffer)
   const c3 = document.createElement('canvas');
-  c3.width = 256; c3.height = 256;
+  c3.width = 128; c3.height = 128;
   const ctx3 = c3.getContext('2d')!;
-  ctx3.fillStyle = '#808080'; ctx3.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 1000; i++) {
-    ctx3.globalAlpha = Math.random() * 0.15;
-    ctx3.fillStyle = Math.random() > 0.5 ? '#ffffff' : '#000000';
-    ctx3.beginPath();
-    ctx3.arc(Math.random() * 256, Math.random() * 256, Math.random() * 15 + 2, 0, Math.PI * 2);
-    ctx3.fill();
+  const imgData3 = ctx3.createImageData(128, 128);
+  const buf32 = new Uint32Array(imgData3.data.buffer);
+  for (let i = 0; i < buf32.length; i++) {
+    const v = (128 + ((Math.random() - 0.5) * 35)) | 0;
+    buf32[i] = (255 << 24) | (v << 16) | (v << 8) | v;
   }
+  ctx3.putImageData(imgData3, 0, 0);
   _metalNoise = new THREE.CanvasTexture(c3);
   _metalNoise.wrapS = THREE.RepeatWrapping; _metalNoise.wrapT = THREE.RepeatWrapping;
 };

@@ -20,24 +20,24 @@ const Hero = () => {
         gsap.fromTo(
           titleRef.current.position,
           { y: -10 },
-          { y: 9, duration: 2.5, ease: 'power3.out', delay: 0.5 }
+          { y: 9, duration: 1.6, ease: 'power3.out', delay: 0.1 }
         );
         gsap.fromTo(
           titleRef.current,
           { fillOpacity: 0 },
-          { fillOpacity: 1, duration: 2, delay: 0.8 }
+          { fillOpacity: 1, duration: 1.2, delay: 0.15 }
         );
       }
       if (subtitleRef.current) {
         gsap.fromTo(
           subtitleRef.current.position,
           { y: -12 },
-          { y: 7, duration: 2.5, ease: 'power3.out', delay: 1 }
+          { y: 7, duration: 1.6, ease: 'power3.out', delay: 0.25 }
         );
         gsap.fromTo(
           subtitleRef.current,
           { fillOpacity: 0 },
-          { fillOpacity: 1, duration: 2, delay: 1.2 }
+          { fillOpacity: 1, duration: 1.2, delay: 0.3 }
         );
       }
     }

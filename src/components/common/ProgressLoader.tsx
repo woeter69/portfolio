@@ -57,7 +57,14 @@ const ProgressLoader = ({ progress }: ProgressLoaderProps) => {
   if (svgWidth <= strokeWidth || svgHeight <= strokeWidth) return null;
 
   return (
-    <div className="progress-loader progress-loader--desktop">
+    <div
+      className="progress-loader progress-loader--desktop"
+      style={{
+        opacity: clampedProgress === 100 ? 0 : 1,
+        transition: 'opacity 0.5s ease-out',
+        pointerEvents: 'none',
+      }}
+    >
       <svg
         width={svgWidth}
         height={svgHeight}
@@ -86,7 +93,7 @@ const ProgressLoader = ({ progress }: ProgressLoaderProps) => {
           style={{
             strokeDasharray: perimeter,
             strokeDashoffset: strokeDashoffset,
-            transition: 'stroke-dashoffset 1s ease-in-out',
+            transition: 'stroke-dashoffset 0.3s ease-out',
           }}
         />
       </svg>

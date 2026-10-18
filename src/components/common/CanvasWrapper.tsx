@@ -75,7 +75,7 @@ const CanvasOpacityController = () => {
 
   useEffect(() => {
     if (progress === 100) {
-      gsap.to('.base-canvas', { opacity: 1, duration: 3, delay: 0.5 });
+      gsap.to('.base-canvas', { opacity: 1, duration: 0.8, delay: 0.1, ease: 'power2.out' });
     }
   }, [progress]);
 
